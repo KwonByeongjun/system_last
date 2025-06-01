@@ -1,9 +1,15 @@
-kwon@raspberrypi:~/real_real/System-Programming-OctaFlip/hw3_202311160 $ g++ -Iinclude -Ilibs/rpi-rgb-led-matrix/include -x c main.c src/server.c src/client.c src/json.c src/game.c src/board.c libs/cJSON.c -Llibs/rpi-rgb-led-matrix/lib -lrgbmatrix -lpthread -lrt -o hw3
-/usr/bin/ld: /tmp/ccAhkc6J.o: in function `main':
-main.c:(.text+0x15c): undefined reference to `server_run'
-/usr/bin/ld: main.c:(.text+0x3fc): undefined reference to `init_led_matrix'
-/usr/bin/ld: main.c:(.text+0x450): undefined reference to `client_run'
-/usr/bin/ld: main.c:(.text+0x458): undefined reference to `close_led_matrix'
-/usr/bin/ld: /tmp/ccmyXWzT.o: in function `client_run(char const*, char const*, char const*)':
-client.c:(.text+0x5e0): undefined reference to `generate_move(char (*) [8], char, int*, int*, int*, int*)'
+kwon@raspberrypi:~/real_real/System-Programming-OctaFlip/hw3_202311160 $ g++ -std=c11 -O2 -Iinclude -Ilibs/rpi-rgb-led-matrix/include -x c main.c src/server.c src/client.c src/json.c src/game.c src/board.c libs/cJSON.c -Llibs/rpi-rgb-led-matrix/lib -lrgbmatrix -lpthread -lrt -o hw3
+cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
+cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
+cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
+cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
+cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
+cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
+/usr/bin/ld: /tmp/ccC3VyZp.o: in function `main':
+main.c:(.text.startup+0x120): undefined reference to `init_led_matrix'
+/usr/bin/ld: main.c:(.text.startup+0x13c): undefined reference to `client_run'
+/usr/bin/ld: main.c:(.text.startup+0x144): undefined reference to `close_led_matrix'
+/usr/bin/ld: main.c:(.text.startup+0x220): undefined reference to `server_run'
+/usr/bin/ld: /tmp/ccmaiYrq.o: in function `client_run(char const*, char const*, char const*)':
+client.c:(.text+0x32c): undefined reference to `generate_move(char (*) [8], char, int*, int*, int*, int*)'
 collect2: error: ld returned 1 exit status
