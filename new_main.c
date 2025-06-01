@@ -18,12 +18,9 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // ============================================================
-    // 1) "server" 모드: LED 초기화/종료 코드를 모두 제거하고
-    //    오직 서버 로직(server_run)만 실행
-    // ============================================================
+    // ====== 1) SERVER 모드 ======
     if (strcmp(argv[1], "server") == 0) {
-        int port = 8080;  // 기본 포트
+        int port = 8080;
         char port_str[16];
 
         // -p <port> 파싱
@@ -34,28 +31,21 @@ int main(int argc, char *argv[]) {
         }
         snprintf(port_str, sizeof(port_str), "%d", port);
 
-        // *** 여기서 LED 초기화/종료 코드는 전부 제거 ***
-        // if (init_led_matrix(&argc, &argv) < 0) {
-        //     fprintf(stderr, "Failed to initialize LED Matrix.\n");
-        //     return EXIT_FAILURE;
-        // }
-
+        // *** 서버에서는 LED 함수 호출 전혀 없음 ***
+        // init_led_matrix(&argc, &argv);
         int ret = server_run(port_str);
-
-        // close_led_matrix();  // ← 삭제 or 주석 처리
+        // close_led_matrix();
         return ret;
     }
 
-    // ============================================================
-    // 2) "client" 모드: 클라이언트만 LED를 초기화/종료할 수 있도록 추가
-    // ============================================================
+    // ====== 2) CLIENT 모드 ======
     else if (strcmp(argv[1], "client") == 0) {
         char *ip = NULL;
         int port = 8080;
         char port_str[16];
         char *username = NULL;
 
-        // -i <ip> / -p <port> / -u <username> 파싱
+        // -i <ip>, -p <port>, -u <username> 파싱
         for (int i = 2; i < argc; ++i) {
             if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
                 ip = argv[++i];
@@ -71,24 +61,19 @@ int main(int argc, char *argv[]) {
         }
         snprintf(port_str, sizeof(port_str), "%d", port);
 
-        // ────────────────────────────────────────────────────────
-        // 클라이언트 모드에서도 LED를 초기화하도록 호출
+        // ▶ 클라이언트만 LED를 초기화/종료하도록 호출
         if (init_led_matrix(&argc, &argv) < 0) {
-            // 로컬에 LED 하드웨어가 없거나 권한이 없으면 경고만 출력하고 계속 진행
-            fprintf(stderr, "[Client Warning] LED Matrix 초기화 실패 (로컬 하드웨어 없음 혹은 권한 부족)\n");
+            fprintf(stderr, "[Client Warning] LED 초기화 실패 (로컬 하드웨어 없음 또는 권한 부족)\n");
+            // init 실패해도 클라이언트 로직은 계속 실행
         }
 
-        // TA 서버 혹은 로컬 서버와 통신하며, board를 받을 때마다 update_led_matrix()를 client_run() 내부에서 호출
         int ret = client_run(ip, port_str, username);
 
-        // 클라이언트 종료 시 LED 닫기
         close_led_matrix();
         return ret;
     }
 
-    // ============================================================
-    // 3) 그 외 잘못된 실행법
-    // ============================================================
+    // ====== 3) 그 외 ======
     else {
         print_usage(argv[0]);
         return EXIT_FAILURE;
