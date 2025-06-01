@@ -1,7 +1,7 @@
 #include "../include/client.h"
 #include "../include/game.h"
 #include "../include/json.h"
-#include "../include/board.h"   // LED 관련 함수( update_led_matrix, init_led_matrix, close_led_matrix )를 위해 추가
+#include "../include/board.h"   // LED 관련 함수 사용
 #include "../libs/cJSON.h"
 
 #include <stdio.h>
@@ -15,9 +15,9 @@
 
 #define SIMULATION_TIME 3.0
 
-// -----------------------------
-// 1) count_flips: 뒤집힐 수 있는 돌 개수 계산
-// -----------------------------
+// ---------------------------
+// count_flips: 뒤집힐 돌 개수 계산
+// ---------------------------
 int count_flips(char board[BOARD_SIZE][BOARD_SIZE],
                 int r, int c, char player_color) {
     int flip_count = 0;
@@ -34,11 +34,13 @@ int count_flips(char board[BOARD_SIZE][BOARD_SIZE],
     return flip_count;
 }
 
-// -----------------------------
-// 2) generate_move: 가장 많은 돌을 뒤집을 수 있는 위치를 선택
-// -----------------------------
-int generate_move(char board[BOARD_SIZE][BOARD_SIZE], char player_color,
-                  int *out_r1, int *out_c1, int *out_r2, int *out_c2) {
+// ---------------------------
+// generate_move: 가장 많은 돌 뒤집을 위치 선택
+// ---------------------------
+int generate_move(char board[BOARD_SIZE][BOARD_SIZE],
+                  char player_color,
+                  int *out_r1, int *out_c1,
+                  int *out_r2, int *out_c2) {
     sleep(2);
     int best_score = -1;
 
@@ -85,12 +87,13 @@ int generate_move(char board[BOARD_SIZE][BOARD_SIZE], char player_color,
     return 1;
 }
 
-// -----------------------------
-// 3) connect_to_server: IP/PORT로 연결하여 소켓 디스크립터 반환
-// -----------------------------
+// ---------------------------
+// connect_to_server: IP/PORT로 연결
+// ---------------------------
 static int connect_to_server(const char *ip, const char *port) {
     struct addrinfo hints, *res, *p;
     int sockfd;
+
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -112,9 +115,9 @@ static int connect_to_server(const char *ip, const char *port) {
     return sockfd;
 }
 
-// -----------------------------
-// 4) client_run: 서버와 메시지 송수신, LED 업데이트는 여기서만 수행
-// -----------------------------
+// ---------------------------
+// client_run: 서버 메시지 처리 + LED 업데이트
+// ---------------------------
 int client_run(const char *ip, const char *port, const char *username) {
     int sockfd = connect_to_server(ip, port);
     if (sockfd < 0) {
@@ -141,27 +144,24 @@ int client_run(const char *ip, const char *port, const char *username) {
 
     // 2) 서버 메시지 처리 루프
     while (1) {
-        char my_color;
-
         cJSON *msg = recv_json(sockfd);
-        if (!msg) {
-            // 서버 연결 종료 또는 오류
-            break;
-        }
+        if (!msg) break;
+
         cJSON *jtype = cJSON_GetObjectItem(msg, "type");
         if (!jtype || !jtype->valuestring) {
             cJSON_Delete(msg);
             continue;
         }
+        const char *type = jtype->valuestring;
 
         // --- register_ack ---
-        if (strcmp(jtype->valuestring, "register_ack") == 0) {
+        if (strcmp(type, "register_ack") == 0) {
             printf("Registered: %s\n", username);
             cJSON_Delete(msg);
             continue;
         }
         // --- register_nack ---
-        else if (strcmp(jtype->valuestring, "register_nack") == 0) {
+        else if (strcmp(type, "register_nack") == 0) {
             cJSON *jreason = cJSON_GetObjectItem(msg, "reason");
             if (jreason && jreason->valuestring) {
                 printf("Register failed: %s\n", jreason->valuestring);
@@ -172,23 +172,13 @@ int client_run(const char *ip, const char *port, const char *username) {
             break;
         }
         // --- game_start ---
-        else if (strcmp(jtype->valuestring, "game_start") == 0) {
+        else if (strcmp(type, "game_start") == 0) {
             printf("Game started\n");
-            cJSON *jplayers = cJSON_GetObjectItem(msg, "players");
-            if (jplayers && cJSON_IsArray(jplayers)) {
-                const cJSON *p0 = cJSON_GetArrayItem(jplayers, 0);
-                // 내 차례가 첫 번째면 'R', 아니면 'B'
-                if (p0 && p0->valuestring && strcmp(username, p0->valuestring) == 0)
-                    my_color = 'R';
-                else
-                    my_color = 'B';
-            }
             cJSON_Delete(msg);
             continue;
         }
         // --- your_turn ---
-        else if (strcmp(jtype->valuestring, "your_turn") == 0) {
-            // 2-3-1) 보드 배열 수신 및 출력
+        else if (strcmp(type, "your_turn") == 0) {
             cJSON *jbarr = cJSON_GetObjectItem(msg, "board");
             if (jbarr && cJSON_IsArray(jbarr)) {
                 int nrows = cJSON_GetArraySize(jbarr);
@@ -197,8 +187,9 @@ int client_run(const char *ip, const char *port, const char *username) {
                     const cJSON *jrow = cJSON_GetArrayItem(jbarr, i);
                     if (jrow && jrow->valuestring) {
                         memcpy(board_arr[i], jrow->valuestring, BOARD_SIZE);
-                        // LED 업데이트
+                        // LED에 보드 출력
                         update_led_matrix(board_arr);
+
                         // 터미널 출력
                         char rowbuf[BOARD_SIZE + 1];
                         memcpy(rowbuf, jrow->valuestring, BOARD_SIZE);
@@ -207,38 +198,35 @@ int client_run(const char *ip, const char *port, const char *username) {
                     }
                 }
             }
-            // 2-3-2) timeout 정보 출력
             cJSON *jtimeout = cJSON_GetObjectItem(msg, "timeout");
-            if (jtimeout && (jtimeout->valuedouble || jtimeout->valuedouble == 0.0)) {
+            if (jtimeout) {
                 printf("Timeout: %.1f s\n", jtimeout->valuedouble);
             }
-            // 2-3-3) board_arr는 이미 채워졌으므로 그대로 사용
 
-            // 2-3-4) generate_move 호출
             printf("Your turn\n");
+            // (여기서 my_color를 정해야 하는데, 서버가 색을 알려주지 않는다면
+            // 보드[0][0] 같은 방식으로 파싱하거나, game_start 때 전달받은 players 순서에 따라 저장해야 함)
+            char my_color = board_arr[0][0]; // (예: 첫 칸 값으로 판별)
+
             int r1, c1, r2, c2;
             int has_move = generate_move(board_arr, my_color, &r1, &c1, &r2, &c2);
 
-            // 2-3-5) move 메시지 작성 → 서버로 전송
             cJSON *mv = cJSON_CreateObject();
             cJSON_AddStringToObject(mv, "type", "move");
             cJSON_AddStringToObject(mv, "username", username);
-
             if (has_move) {
                 cJSON_AddNumberToObject(mv, "sx", r1 + 1);
                 cJSON_AddNumberToObject(mv, "sy", c1 + 1);
                 cJSON_AddNumberToObject(mv, "tx", r2 + 1);
                 cJSON_AddNumberToObject(mv, "ty", c2 + 1);
             } else {
-                // 둘 곳이 없으면 (0,0) → 서버가 “pass”로 처리
                 cJSON_AddNumberToObject(mv, "sx", 0);
                 cJSON_AddNumberToObject(mv, "sy", 0);
                 cJSON_AddNumberToObject(mv, "tx", 0);
                 cJSON_AddNumberToObject(mv, "ty", 0);
             }
-
             if (send_json(sockfd, mv) < 0) {
-                fprintf(stderr, "Failed to send move/pass message\n");
+                fprintf(stderr, "Failed to send move/pass\n");
                 cJSON_Delete(mv);
                 cJSON_Delete(msg);
                 break;
@@ -248,18 +236,16 @@ int client_run(const char *ip, const char *port, const char *username) {
             cJSON_Delete(msg);
             continue;
         }
-
         // --- move_ok / invalid_move / pass ---
-        else if (strcmp(jtype->valuestring, "move_ok") == 0 ||
-                 strcmp(jtype->valuestring, "invalid_move") == 0 ||
-                 strcmp(jtype->valuestring, "pass") == 0)
+        else if (strcmp(type, "move_ok") == 0 ||
+                 strcmp(type, "invalid_move") == 0 ||
+                 strcmp(type, "pass") == 0)
         {
             if (waiting_for_result) {
-                printf("Move result: %s\n", jtype->valuestring);
+                printf("Move result: %s\n", type);
                 printf("Next player's turn\n");
                 waiting_for_result = 0;
 
-                // 서버가 보드를 같이 보냈다면 LED 업데이트
                 cJSON *jbarr = cJSON_GetObjectItem(msg, "board");
                 if (jbarr && cJSON_IsArray(jbarr)) {
                     int nrows = cJSON_GetArraySize(jbarr);
@@ -276,10 +262,8 @@ int client_run(const char *ip, const char *port, const char *username) {
             continue;
         }
         // --- game_over ---
-        else if (strcmp(jtype->valuestring, "game_over") == 0) {
+        else if (strcmp(type, "game_over") == 0) {
             printf("Game Over\n");
-
-            // 최종 보드를 터미널 출력 및 LED 업데이트
             cJSON *jbarr = cJSON_GetObjectItem(msg, "board");
             if (jbarr && cJSON_IsArray(jbarr)) {
                 int nrows = cJSON_GetArraySize(jbarr);
@@ -296,8 +280,6 @@ int client_run(const char *ip, const char *port, const char *username) {
                 }
                 update_led_matrix(board_arr);
             }
-
-            // 최종 점수 출력
             cJSON *jscores = cJSON_GetObjectItem(msg, "scores");
             if (jscores && cJSON_IsObject(jscores)) {
                 printf("Final scores:\n");
@@ -312,9 +294,11 @@ int client_run(const char *ip, const char *port, const char *username) {
             cJSON_Delete(msg);
             break;
         }
+
         cJSON_Delete(msg);
     }
 
     close(sockfd);
     return EXIT_SUCCESS;
 }
+
