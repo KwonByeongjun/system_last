@@ -1,15 +1,27 @@
-kwon@raspberrypi:~/real_real/System-Programming-OctaFlip/hw3_202311160 $ g++ -std=c11 -O2 -Iinclude -Ilibs/rpi-rgb-led-matrix/include -x c main.c src/server.c src/client.c src/json.c src/game.c src/board.c libs/cJSON.c -Llibs/rpi-rgb-led-matrix/lib -lrgbmatrix -lpthread -lrt -o hw3
-cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
-cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
-cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
-cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
-cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
-cc1plus: warning: command-line option ‘-std=c11’ is valid for C/ObjC but not for C++
-/usr/bin/ld: /tmp/ccC3VyZp.o: in function `main':
-main.c:(.text.startup+0x120): undefined reference to `init_led_matrix'
-/usr/bin/ld: main.c:(.text.startup+0x13c): undefined reference to `client_run'
-/usr/bin/ld: main.c:(.text.startup+0x144): undefined reference to `close_led_matrix'
-/usr/bin/ld: main.c:(.text.startup+0x220): undefined reference to `server_run'
-/usr/bin/ld: /tmp/ccmaiYrq.o: in function `client_run(char const*, char const*, char const*)':
-client.c:(.text+0x32c): undefined reference to `generate_move(char (*) [8], char, int*, int*, int*, int*)'
-collect2: error: ld returned 1 exit status
+gcc -std=c11 -O2 \
+    -Iinclude -Ilibs/rpi-rgb-led-matrix/include \
+    -c main.c       -o main.o
+gcc -std=c11 -O2 \
+    -Iinclude -Ilibs/rpi-rgb-led-matrix/include \
+    -c src/server.c -o server.o
+gcc -std=c11 -O2 \
+    -Iinclude -Ilibs/rpi-rgb-led-matrix/include \
+    -c src/client.c -o client.o
+gcc -std=c11 -O2 \
+    -Iinclude -Ilibs/rpi-rgb-led-matrix/include \
+    -c src/json.c   -o json.o
+gcc -std=c11 -O2 \
+    -Iinclude -Ilibs/rpi-rgb-led-matrix/include \
+    -c src/game.c   -o game.o
+gcc -std=c11 -O2 \
+    -Iinclude -Ilibs/rpi-rgb-led-matrix/include \
+    -c src/board.c  -o board.o
+gcc -std=c11 -O2 \
+    -Ilibs \
+    -c libs/cJSON.c -o cJSON.o
+
+
+g++ \
+  main.o server.o client.o json.o game.o board.o cJSON.o \
+  -Llibs/rpi-rgb-led-matrix/lib -lrgbmatrix -lpthread -lrt \
+  -o hw3
