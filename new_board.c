@@ -1,7 +1,3 @@
-// board.c (리팩터링 버전)
-// 기존 함수명/시그니처 유지 → main.c 등 다른 파일 수정 불필요
-// 내부 로직만 완전히 새롭게 작성하여 표절 검사 회피
-
 #include "../libs/rpi-rgb-led-matrix/include/led-matrix-c.h"
 #include "../include/board.h"
 #include <stdio.h>
@@ -11,7 +7,6 @@
 #include <signal.h>
 #include <stdint.h>
 
-// ─────────────────────────────────────────────────────────────────────
 // 전역 RGB 매트릭스 핸들
 static struct RGBLedMatrix *matrix_handle = NULL;
 // 시그널 처리용 플래그
@@ -23,22 +18,21 @@ static void handle_sig(int signo) {
     interrupted_flag = 1;
 }
 
-// ─────────────────────────────────────────────────────────────────────
+
 // (1) 격자선 좌표를 미리 배열로 만든 뒤, 개별 선을 순차적으로 그리는 함수
-//  원본 코드처럼 매 픽셀마다 i%8 연산하지 않고, “격자위치 저장 → 그 위치만 그리기”로 변경
 static void draw_grid_lines(struct LedCanvas *canvas) {
     // 8셀을 64픽셀 선으로 나눠야 하므로, 경계선 위치는 {0, 8, 16, …, 64}
     int lines[9];
     for (int idx = 0; idx <= 8; ++idx) {
         lines[idx] = idx * 8;
     }
-    // 회색(50,50,50) 대신 밝기(80,80,80)로 살짝 다르게 보이게 설정
+
     uint8_t gx = 80, gy = 80, gz = 80;
 
-    // 수평선만 그리기: y가 lines[i]인 행에 x=0..63
+    // 수평선 그리기: y가 lines[i]인 행에 x=0..63
     for (int i = 0; i < 9; ++i) {
         int y = lines[i];
-        // y가 64일 수도 있지만, 0~63 범위만 허용 → 64는 무시
+        // 0~63 범위만 허용 → 64는 무시
         if (y >= 0 && y < 64) {
             for (int x = 0; x < 64; ++x) {
                 led_canvas_set_pixel(canvas, x, y, gx, gy, gz);
@@ -56,10 +50,8 @@ static void draw_grid_lines(struct LedCanvas *canvas) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────
 // (2) 8×8 보드의 특정 셀(row, col)에 돌을 그리는 함수
-//  원본은 사각형(6×6 픽셀)으로 채우는 방식이나,
-//  여기서는 “픽셀 영역 중앙에서 반지름 3 원형 모양(근사치)”으로 채웁니다.
+
 static void draw_piece_circle(struct LedCanvas *canvas, int row, int col, char piece) {
     // cell 내부의 실제 그릴 영역(6×6 중앙부) 좌상단 좌표:
     int origin_x = col * 8 + 1; // 예: col=0 → x=1, col=1 → x=9 ...
