@@ -1,23 +1,4 @@
 kwon@raspberrypi:~/real_real/System-Programming-OctaFlip/hw3_202311160 $ g++ -Iinclude -Ilibs/rpi-rgb-led-matrix/include main.c src/server.c src/client.c src/json.c src/game.c src/board.c libs/cJSON.c -Llibs/rpi-rgb-led-matrix/lib -lrgbmatrix -lpthread -lrt -o hw3
-src/server.c: In function ‘void* reject_late_clients(void*)’:
-src/server.c:96:12: error: ‘global_listen_fd’ was not declared in this scope
-   96 |     while (global_listen_fd >= 0) {
-      |            ^~~~~~~~~~~~~~~~
-src/server.c: In function ‘int accept_and_register(int)’:
-src/server.c:116:5: error: ‘global_listen_fd’ was not declared in this scope
-  116 |     global_listen_fd = listen_fd;
-      |     ^~~~~~~~~~~~~~~~
-src/server.c:152:17: error: ‘game’ was not declared in this scope
-  152 |         strncpy(game.players[i].username, jusername->valuestring, sizeof(game.players[i].username)-1);
-      |                 ^~~~
-src/server.c: In function ‘void game_loop()’:
-src/server.c:197:22: error: ‘game’ was not declared in this scope
-  197 |     init_game_state(&game);
-      |                      ^~~~
-src/server.c: In function ‘int server_run(const char*)’:
-src/server.c:390:5: error: ‘global_listen_fd’ was not declared in this scope
-  390 |     global_listen_fd = listen_fd;
-      |     ^~~~~~~~~~~~~~~~
-src/server.c:396:13: error: ‘game’ was not declared in this scope
-  396 |         if (game.players[i].socket >= 0) {
-      |  
+/usr/bin/ld: /tmp/ccXOninO.o: in function `client_run(char const*, char const*, char const*)':
+client.c:(.text+0x5e0): undefined reference to `generate_move(char (*) [8], char, int*, int*, int*, int*)'
+collect2: error: ld returned 1 exit status
