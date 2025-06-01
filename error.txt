@@ -1,18 +1,23 @@
 kwon@raspberrypi:~/real_real/System-Programming-OctaFlip/hw3_202311160 $ g++ -Iinclude -Ilibs/rpi-rgb-led-matrix/include main.c src/server.c src/client.c src/json.c src/game.c src/board.c libs/cJSON.c -Llibs/rpi-rgb-led-matrix/lib -lrgbmatrix -lpthread -lrt -o hw3
-src/server.c:28:3: error: conflicting declaration ‘typedef struct Player Player’
-   28 | } Player;
-      |   ^~~~~~
-In file included from src/server.c:3:
-src/../include/server.h:17:3: note: previous declaration as ‘typedef struct Player Player’
-   17 | } Player;
-      |   ^~~~~~
-src/server.c:34:3: error: conflicting declaration ‘typedef struct GameState GameState’
-   34 | } GameState;
-      |   ^~~~~~~~~
-src/../include/server.h:23:3: note: previous declaration as ‘typedef struct GameState GameState’
-   23 | } GameState;
-      |   ^~~~~~~~~
-In file included from src/client.c:3:
-src/../include/client.h:7:12: warning: ‘int connect_to_server(const char*, const char*)’ used but never defined
-    7 | static int connect_to_server(const char *ip, const char *port);
-      | 
+src/server.c: In function ‘void* reject_late_clients(void*)’:
+src/server.c:96:12: error: ‘global_listen_fd’ was not declared in this scope
+   96 |     while (global_listen_fd >= 0) {
+      |            ^~~~~~~~~~~~~~~~
+src/server.c: In function ‘int accept_and_register(int)’:
+src/server.c:116:5: error: ‘global_listen_fd’ was not declared in this scope
+  116 |     global_listen_fd = listen_fd;
+      |     ^~~~~~~~~~~~~~~~
+src/server.c:152:17: error: ‘game’ was not declared in this scope
+  152 |         strncpy(game.players[i].username, jusername->valuestring, sizeof(game.players[i].username)-1);
+      |                 ^~~~
+src/server.c: In function ‘void game_loop()’:
+src/server.c:197:22: error: ‘game’ was not declared in this scope
+  197 |     init_game_state(&game);
+      |                      ^~~~
+src/server.c: In function ‘int server_run(const char*)’:
+src/server.c:390:5: error: ‘global_listen_fd’ was not declared in this scope
+  390 |     global_listen_fd = listen_fd;
+      |     ^~~~~~~~~~~~~~~~
+src/server.c:396:13: error: ‘game’ was not declared in this scope
+  396 |         if (game.players[i].socket >= 0) {
+      |  
