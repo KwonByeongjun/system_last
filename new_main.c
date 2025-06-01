@@ -1,15 +1,28 @@
+// src/main.c
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "server.h"
-#include "client.h"
-#include "board.h"
 
-// 사용법 안내
-void print_usage(const char *prog) {
+#include "../include/server.h"
+#include "../include/client.h"
+#include "../include/board.h"
+
+static void print_usage(const char *prog) {
     printf("Usage:\n");
     printf("  %s server -p <port>\n", prog);
-    printf("  %s client -i <ip> -p <port> -u <username>\n", prog);
+    printf("  %s client -i <ip> -p <port> -u <username> [LED options]\n", prog);
+    printf("\n");
+    printf("LED options (client 모드일 때만):\n");
+    printf("  --led-rows=<rows>                (예: --led-rows=64)\n");
+    printf("  --led-cols=<cols>                (예: --led-cols=64)\n");
+    printf("  --led-gpio-mapping=<mapping>     (예: --led-gpio-mapping=adafruit-hat)\n");
+    printf("  --led-brightness=<value>         (예: --led-brightness=75)\n");
+    printf("\n");
+    printf("Examples:\n");
+    printf("  %s server -p 9000\n", prog);
+    printf("  %s client -i 10.0.0.5 -p 9000 -u Alice --led-rows=64 --led-cols=64 --led-gpio-mapping=adafruit-hat --led-brightness=75\n", prog);
+    printf("\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -18,62 +31,76 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // ====== 1) SERVER 모드 ======
     if (strcmp(argv[1], "server") == 0) {
-        int port = 8080;
-        char port_str[16];
-
-        // -p <port> 파싱
-        for (int i = 2; i < argc; ++i) {
-            if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
-                port = atoi(argv[++i]);
-            }
-        }
-        snprintf(port_str, sizeof(port_str), "%d", port);
-
-        // *** 서버에서는 LED 함수 호출 전혀 없음 ***
-        // init_led_matrix(&argc, &argv);
-        int ret = server_run(port_str);
-        // close_led_matrix();
-        return ret;
-    }
-
-    // ====== 2) CLIENT 모드 ======
-    else if (strcmp(argv[1], "client") == 0) {
-        char *ip = NULL;
-        int port = 8080;
-        char port_str[16];
-        char *username = NULL;
-
-        // -i <ip>, -p <port>, -u <username> 파싱
-        for (int i = 2; i < argc; ++i) {
-            if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
-                ip = argv[++i];
-            } else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
-                port = atoi(argv[++i]);
-            } else if (strcmp(argv[i], "-u") == 0 && i + 1 < argc) {
-                username = argv[++i];
-            }
-        }
-        if (!ip || !username) {
+        // ----- Server 모드 -----
+        if (argc < 4 || strcmp(argv[2], "-p") != 0) {
             print_usage(argv[0]);
             return EXIT_FAILURE;
         }
-        snprintf(port_str, sizeof(port_str), "%d", port);
-
-        // ▶ 클라이언트만 LED를 초기화/종료하도록 호출
-        if (init_led_matrix(&argc, &argv) < 0) {
-            fprintf(stderr, "[Client Warning] LED 초기화 실패 (로컬 하드웨어 없음 또는 권한 부족)\n");
-            // init 실패해도 클라이언트 로직은 계속 실행
+        const char *port_str = argv[3];
+        return server_run(port_str);
+    }
+    else if (strcmp(argv[1], "client") == 0) {
+        // ----- Client 모드 (LED 제어 포함) -----
+        if (argc < 8) {
+            print_usage(argv[0]);
+            return EXIT_FAILURE;
         }
 
-        int ret = client_run(ip, port_str, username);
+        // 인자 파싱: "-i <ip>" "-p <port>" "-u <username>"
+        const char *server_ip = NULL;
+        const char *server_port = NULL;
+        const char *username = NULL;
+        int idx = 2;
+        while (idx < argc && argv[idx][0] == '-') {
+            if (strcmp(argv[idx], "-i") == 0 && idx + 1 < argc) {
+                server_ip = argv[idx + 1];
+                idx += 2;
+            }
+            else if (strcmp(argv[idx], "-p") == 0 && idx + 1 < argc) {
+                server_port = argv[idx + 1];
+                idx += 2;
+            }
+            else if (strcmp(argv[idx], "-u") == 0 && idx + 1 < argc) {
+                username = argv[idx + 1];
+                idx += 2;
+            }
+            else {
+                // LED 옵션 시작 지점
+                break;
+            }
+        }
 
+        if (!server_ip || !server_port || !username) {
+            print_usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+
+        // 남은 argv[idx..argc-1]을 모두 LED 옵션으로 간주
+        int led_argc = argc - idx;
+        char **led_argv = NULL;
+        if (led_argc > 0) {
+            led_argv = malloc(sizeof(char *) * led_argc);
+            for (int i = 0; i < led_argc; i++) {
+                led_argv[i] = argv[idx + i];
+            }
+        }
+
+        // *** LED 매트릭스 초기화 ***
+        if (init_led_matrix(&led_argc, &led_argv) < 0) {
+            fprintf(stderr, "Error: LED matrix initialization failed.\n");
+            free(led_argv);
+            return EXIT_FAILURE;
+        }
+        free(led_argv);
+
+        // *** TA 서버와의 게임 진행 ***
+        int ret = client_run(server_ip, server_port, username);
+
+        // *** LED 매트릭스 자원 해제 ***
         close_led_matrix();
         return ret;
     }
-
-    // ====== 3) 그 외 ======
     else {
         print_usage(argv[0]);
         return EXIT_FAILURE;
