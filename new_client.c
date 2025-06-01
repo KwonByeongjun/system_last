@@ -1,5 +1,3 @@
-// src/client.c
-
 #include "../include/client.h"
 #include "../include/game.h"
 #include "../include/json.h"
@@ -11,15 +9,58 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>    // close()
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <arpa/inet.h>
 
 #define BOARD_SIZE 8
 
 // 전역 board 배열
 static char board[BOARD_SIZE][BOARD_SIZE];
 
+/*
+  client.h 에는 다음과 같이 선언만 되어 있었음:
+    static int connect_to_server(const char *ip, const char *port);
+
+  아래에 실제로 구현을 추가하여 “used but never defined” 문제 해결합니다.
+*/
+int connect_to_server(const char *ip, const char *port) {
+    struct addrinfo hints, *res, *p;
+    int sockfd;
+    int rv;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET;       // IPv4
+    hints.ai_socktype = SOCK_STREAM; // TCP
+
+    if ((rv = getaddrinfo(ip, port, &hints, &res)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+        return -1;
+    }
+
+    for (p = res; p != NULL; p = p->ai_next) {
+        sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (sockfd < 0) continue;
+        if (connect(sockfd, p->ai_addr, p->ai_addrlen) < 0) {
+            close(sockfd);
+            continue;
+        }
+        break;
+    }
+
+    if (p == NULL) {
+        fprintf(stderr, "Failed to connect to %s:%s\n", ip, port);
+        freeaddrinfo(res);
+        return -1;
+    }
+
+    freeaddrinfo(res);
+    return sockfd;
+}
+
 // ==============================
 // (1) JSON → board[8][8] 변환
-//     TA 서버(또는 로컬 서버)가 "board"라는 키에 “8줄×8문자” 배열을 보낸다고 가정
 // ==============================
 void parse_board_from_json(cJSON *root, char board[BOARD_SIZE][BOARD_SIZE]) {
     cJSON *board_arr = cJSON_GetObjectItem(root, "board");
@@ -49,15 +90,11 @@ void print_board_to_stdout(char board[BOARD_SIZE][BOARD_SIZE]) {
 
 // ==============================
 // (3) client_run: main.c에서 호출되는 진입점
-//     - init_led_matrix() 호출
-//     - TA 서버(또는 로컬 서버)와 JSON 송수신
-//     - update_led_matrix() 호출
-//     - close_led_matrix() 호출
 // ==============================
 int client_run(const char *server_ip, const char *server_port, const char *username) {
     // ─── LED 초기화 ─────────────────────────────────────────────────────────
-    // main.c에서 이미 init_led_matrix(&led_argc,&led_argv)를 호출해 두었으므로,
-    // 여기서는 단순히 기본 인자로 초기화합니다.
+    // main.c에서 이미 init_led_matrix(&led_argc,&led_argv)를 호출했으므로,
+    // 여기서는 기본으로 초기화만 수행합니다.
     if (init_led_matrix(NULL, NULL) < 0) {
         fprintf(stderr, "Error: LED initialization failed.\n");
         return EXIT_FAILURE;
@@ -71,7 +108,7 @@ int client_run(const char *server_ip, const char *server_port, const char *usern
         return EXIT_FAILURE;
     }
 
-    // ─── 메시지 처리 루프 ────────────────────────────────────────────────────
+    // ─── JSON 메시지 처리 루프 ───────────────────────────────────────────────────
     while (1) {
         cJSON *msg = recv_json(sockfd);
         if (!msg) {
@@ -113,18 +150,20 @@ int client_run(const char *server_ip, const char *server_port, const char *usern
             update_led_matrix(board);
             print_board_to_stdout(board);
 
+            // generate_move: game.h에 정의
             int r1 = -1, c1 = -1, r2 = -1, c2 = -1;
-            // 현재 내 색깔은, 예를 들어 board[0][0]이 R이면 R 플레이어
-            char my_color = board[0][0];
+            char my_color = board[0][0];  // 예: 첫 칸으로 R/B를 판단
             generate_move(board, my_color, &r1, &c1, &r2, &c2);
 
             // move 메시지 생성
             cJSON *move_req = cJSON_CreateObject();
             cJSON_AddStringToObject(move_req, "type", "move");
+
+            // 【수정】 임시 배열을 미리 선언하여 cJSON_CreateIntArray에 넘김
             int from_arr[2] = { r1, c1 };
             int to_arr[2]   = { r2, c2 };
             cJSON *jfrom = cJSON_CreateIntArray(from_arr, 2);
-            cJSON *jto   = cJSON_CreateIntArray(to_arr, 2);
+            cJSON *jto   = cJSON_CreateIntArray(to_arr,   2);
             cJSON_AddItemToObject(move_req, "from", jfrom);
             cJSON_AddItemToObject(move_req, "to",   jto);
             send_json(sockfd, move_req);
@@ -178,7 +217,7 @@ int client_run(const char *server_ip, const char *server_port, const char *usern
     // ─── 종료: 소켓 닫기 ─────────────────────────────────────────────────────
     close(sockfd);
 
-    // ─── LED 매트릭스 해제 ──────────────────────────────────────────────────
+    // ─── LED 매트릭스 해제 ─────────────────────────────────────────────────────
     close_led_matrix();
     return EXIT_SUCCESS;
 }
