@@ -1,8 +1,8 @@
-#include "../include/client.h"
+ #include "../include/client.h"
 #include "../include/game.h"
 #include "../libs/cJSON.h"
 #include "../include/json.h"
-#include "../include/board.h"   // client에서도 LED를 제어하므로 board.h 필요
+#include "../include/board.h"   // LED 제어 함수 사용
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,8 +12,6 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
-
-#define SIMULATION_TIME 3.0
 
 int count_flips(char board[BOARD_SIZE][BOARD_SIZE], int r, int c, char player_color) {
     int flip_count = 0;
@@ -30,7 +28,6 @@ int count_flips(char board[BOARD_SIZE][BOARD_SIZE], int r, int c, char player_co
     return flip_count;
 }
 
-// generate_move() 함수는 그대로 둡니다.
 int generate_move(char board[BOARD_SIZE][BOARD_SIZE], char player_color,
                   int *out_r1, int *out_c1, int *out_r2, int *out_c2) {
     sleep(2);
@@ -74,7 +71,6 @@ int generate_move(char board[BOARD_SIZE][BOARD_SIZE], char player_color,
         *out_r1 = *out_c1 = *out_r2 = *out_c2 = 0;
         return 0;
     }
-
     return 1;
 }
 
@@ -124,13 +120,13 @@ int client_run(const char *ip, const char *port, const char *username) {
 
     int waiting_for_result = 0;
 
-    /* 2) 서버에서 오는 메시지 처리 루프 */
+    /* 2) 서버 메시지 수신 루프 */
     while (1) {
         char my_color;
 
         cJSON *msg = recv_json(sockfd);
         if (!msg) {
-            /* 서버 오류 또는 연결 끊김 */
+            // 서버 연결 끊김 또는 파싱 오류
             break;
         }
         cJSON *jtype = cJSON_GetObjectItem(msg, "type");
