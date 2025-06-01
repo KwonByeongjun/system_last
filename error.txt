@@ -5,20 +5,20 @@ main.c:86:30: error: invalid conversion from ‘void*’ to ‘char**’ [-fperm
       |                        ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~
       |                              |
       |                              void*
-src/client.c: In function ‘int client_run(const char*, const char*, const char*)’:
-src/client.c:67:35: error: too many arguments to function ‘int connect_to_server(const char*, const char*)’
-   67 |     int sockfd = connect_to_server(server_ip, server_port, username);
-      |                  ~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/server.c:28:3: error: conflicting declaration ‘typedef struct Player Player’
+   28 | } Player;
+      |   ^~~~~~
+In file included from src/server.c:3:
+src/../include/server.h:17:3: note: previous declaration as ‘typedef struct Player Player’
+   17 | } Player;
+      |   ^~~~~~
+src/server.c:34:3: error: conflicting declaration ‘typedef struct GameState GameState’
+   34 | } GameState;
+      |   ^~~~~~~~~
+src/../include/server.h:23:3: note: previous declaration as ‘typedef struct GameState GameState’
+   23 | } GameState;
+      |   ^~~~~~~~~
 In file included from src/client.c:3:
-src/../include/client.h:7:12: note: declared here
-    7 | static int connect_to_server(const char *ip, const char *port);
-      |            ^~~~~~~~~~~~~~~~~
-src/client.c:132:56: error: taking address of temporary array
-  132 |             cJSON *jfrom = cJSON_CreateIntArray((int[]){r1, c1}, 2);
-      |                                                        ^~~~~~~~
-src/client.c:133:56: error: taking address of temporary array
-  133 |             cJSON *jto   = cJSON_CreateIntArray((int[]){r2, c2}, 2);
-      |                                                        ^~~~~~~~
-src/../include/client.h: At global scope:
 src/../include/client.h:7:12: warning: ‘int connect_to_server(const char*, const char*)’ used but never defined
     7 | static int connect_to_server(const char *ip, const char *port);
+      |            ^~~~~~~~~~~~~~~~~
