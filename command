@@ -2,5 +2,5 @@ g++ -Iinclude -Ilibs/rpi-rgb-led-matrix/include main.c src/server.c src/client.c
 
 sudo ./hw3 server -p 8080 --led-rows=64 --led-cols=64 --led-gpio-mapping=regular --led-brightness=75 --led-chain=1 --led-no-hardware-pulse
 
-sudo ./hw3 client -i 127.0.0.1 -p 8080 -u user1 --led-rows=64 --led-cols=64 --led-brightness=75 --led-chain=1 --led-no-hardware-pulse
-sudo ./hw3 client -i 127.0.0.1 -p 8080 -u user2 --led-rows=64 --led-cols=64 --led-brightness=75 --led-chain=1 --led-no-hardware-pulse
+sudo ./hw3 client -i 127.0.0.1 -p 8080 -u user1 --led-rows=64 --led-cols=64 --led-brightness=75 --led-chain=1 --led-no-hardware-pulse --led-gpio-mapping=regular
+sudo ./hw3 client -i 127.0.0.1 -p 8080 -u user2 --led-rows=64 --led-cols=64 --led-brightness=75 --led-chain=1 --led-no-hardware-pulse --led-gpio-mapping=regular
