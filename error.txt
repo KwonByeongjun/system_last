@@ -1,10 +1,4 @@
 kwon@raspberrypi:~/real_real/System-Programming-OctaFlip/hw3_202311160 $ g++ -Iinclude -Ilibs/rpi-rgb-led-matrix/include main.c src/server.c src/client.c src/json.c src/game.c src/board.c libs/cJSON.c -Llibs/rpi-rgb-led-matrix/lib -lrgbmatrix -lpthread -lrt -o hw3
-main.c: In function ‘int main(int, char**)’:
-main.c:86:30: error: invalid conversion from ‘void*’ to ‘char**’ [-fpermissive]
-   86 |             led_argv = malloc(sizeof(char *) * led_argc);
-      |                        ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~
-      |                              |
-      |                              void*
 src/server.c:28:3: error: conflicting declaration ‘typedef struct Player Player’
    28 | } Player;
       |   ^~~~~~
@@ -21,4 +15,4 @@ src/../include/server.h:23:3: note: previous declaration as ‘typedef struct Ga
 In file included from src/client.c:3:
 src/../include/client.h:7:12: warning: ‘int connect_to_server(const char*, const char*)’ used but never defined
     7 | static int connect_to_server(const char *ip, const char *port);
-      |            ^~~~~~~~~~~~~~~~~
+      | 
