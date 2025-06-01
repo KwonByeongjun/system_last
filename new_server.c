@@ -1,420 +1,359 @@
-// src/server.c
-
 #include "../include/server.h"
 #include "../include/game.h"
 #include "../include/json.h"
-
 #include "../libs/cJSON.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>      // close()
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
-#define BOARD_SIZE 8
-#define MAX_CLIENTS 2
-#define TIMEOUT 5  // select 대기 시간(초)
+// -------------------------------------------------------------------------------------------------
+// 1) 전역 변수: GameState와 listen 소켓 디스크립터만 유지 (LED 관련 전혀 없음)
+// -------------------------------------------------------------------------------------------------
+static GameState game;
+static int global_listen_fd;
 
-/*
-  server.h 에 이미 다음 두 타입이 선언되어 있습니다:
+// -------------------------------------------------------------------------------------------------
+// 2) init_game: 보드 초기화 및 플레이어 상태 초기화
+// -------------------------------------------------------------------------------------------------
+void init_game(GameState *game) {
+    game->current_turn = 0; // Red's turn
+    memset(game->board, '.', sizeof(game->board));
+    // 예시 초기 배치 (꼭 필요한 건 아님)
+    game->board[0][0] = 'R';
+    game->board[0][BOARD_SIZE - 1] = 'B';
+    game->board[BOARD_SIZE - 1][0] = 'B';
+    game->board[BOARD_SIZE - 1][BOARD_SIZE - 1] = 'R';
 
-    typedef struct {
-        int socket;
-        char username[32];
-        char color;        // 'R' 또는 'B'
-        int registered;
-    } Player;
-
-    typedef struct {
-        Player players[MAX_CLIENTS];
-        int current_turn;           // 0=R, 1=B
-        char board[BOARD_SIZE][BOARD_SIZE];
-    } GameState;
-*/
-
-// ─────────────────────────────────────────────────────────────────────────────
-// **전역 변수 정의 (server.h에 타입만 있고, 실제 변수는 여기에 정의해야 함)**
-// ─────────────────────────────────────────────────────────────────────────────
-static GameState game;          // 서버가 사용할 게임 상태
-static int global_listen_fd = -1; // accept 거부 스레드가 참조하는 소켓 디스크립터
-
-// ==============================
-// (1) init_game_state: GameState를 시작 상태로 초기화
-// ==============================
-void init_game_state(GameState *g) {
     for (int i = 0; i < MAX_CLIENTS; i++) {
-        g->players[i].socket = -1;
-        g->players[i].username[0] = '\0';
-        g->players[i].color = (i == 0 ? 'R' : 'B');
-        g->players[i].registered = 0;
+        game->players[i].socket = -1;
+        game->players[i].username[0] = '\0';
+        game->players[i].color = (i == 0 ? 'R' : 'B');
+        game->players[i].registered = 0;
     }
-    g->current_turn = 0;
-    for (int r = 0; r < BOARD_SIZE; r++) {
-        for (int c = 0; c < BOARD_SIZE; c++) {
-            g->board[r][c] = '.';
-        }
-    }
-    g->board[3][3] = 'R';
-    g->board[3][4] = 'B';
-    g->board[4][3] = 'B';
-    g->board[4][4] = 'R';
 }
 
-// ==============================
-// (2) create_listen_socket: <port>로 바인딩 후 listen 상태로 만든 뒤 소켓 디스크립터 반환
-// ==============================
+// -------------------------------------------------------------------------------------------------
+// 3) broadcast_json: 등록된 모든 클라이언트에 JSON 메시지 브로드캐스트
+// -------------------------------------------------------------------------------------------------
+void broadcast_json(const cJSON *msg) {
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (game.players[i].socket >= 0) {
+            send_json(game.players[i].socket, msg);
+        }
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// 4) send_to_client: 특정 소켓에만 JSON 메시지 전송
+// -------------------------------------------------------------------------------------------------
+void send_to_client(int sockfd, const cJSON *msg) {
+    if (send_json(sockfd, msg) < 0) {
+        perror("send_json");
+    }
+}
+
+// -------------------------------------------------------------------------------------------------
+// 5) board_to_json: GameState의 2D 배열(보드)을 JSON 배열로 변환
+// -------------------------------------------------------------------------------------------------
+static cJSON *board_to_json(const GameState *game) {
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < BOARD_SIZE; i++) {
+        // game->board[i]는 null-terminated 문자열로 가정
+        cJSON *row = cJSON_CreateString(game->board[i]);
+        cJSON_AddItemToArray(arr, row);
+    }
+    return arr;
+}
+
+// -------------------------------------------------------------------------------------------------
+// 6) create_listen_socket: 포트 바인딩 + listen
+// -------------------------------------------------------------------------------------------------
 static int create_listen_socket(const char *port) {
     struct addrinfo hints, *res, *p;
-    int listen_fd, rv;
-    int yes = 1;
+    int listen_fd, yes = 1;
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET;
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    if ((rv = getaddrinfo(NULL, port, &hints, &res)) != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+    if (getaddrinfo(NULL, port, &hints, &res) != 0) {
+        perror("getaddrinfo");
         return -1;
     }
-
-    for (p = res; p != NULL; p = p->ai_next) {
+    for (p = res; p; p = p->ai_next) {
         listen_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
         if (listen_fd < 0) continue;
-        setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-        if (bind(listen_fd, p->ai_addr, p->ai_addrlen) < 0) {
-            close(listen_fd);
-            continue;
-        }
-        break;
-    }
-
-    if (p == NULL) {
-        fprintf(stderr, "Failed to bind on port %s\n", port);
-        freeaddrinfo(res);
-        return -1;
+        setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes);
+        if (bind(listen_fd, p->ai_addr, p->ai_addrlen) == 0) break;
+        close(listen_fd);
     }
     freeaddrinfo(res);
-
+    if (!p) return -1;
     if (listen(listen_fd, MAX_CLIENTS) < 0) {
         perror("listen");
         close(listen_fd);
         return -1;
     }
-
     return listen_fd;
 }
 
-// ==============================
-// (3) reject_late_clients: 이미 최대 클라이언트가 등록된 뒤 들어오는 연결은 NACK 후 닫기
-// ==============================
-static void *reject_late_clients(void *arg) {
-    (void)arg;
-    while (global_listen_fd >= 0) {
-        struct sockaddr_storage cli_addr;
-        socklen_t sin_size = sizeof cli_addr;
-        int new_fd = accept(global_listen_fd, (struct sockaddr *)&cli_addr, &sin_size);
-        if (new_fd >= 0) {
-            cJSON *nack = cJSON_CreateObject();
-            cJSON_AddStringToObject(nack, "type", "register_nack");
-            cJSON_AddStringToObject(nack, "reason", "Server already has 2 players");
-            send_json(new_fd, nack);
-            cJSON_Delete(nack);
-            close(new_fd);
-        }
-    }
-    return NULL;
-}
-
-// ==============================
-// (4) accept_and_register: 최대 MAX_CLIENTS명까지 accept + “register” 처리
-// ==============================
+// -------------------------------------------------------------------------------------------------
+// 7) accept_and_register: 최대 MAX_CLIENTS까지 “register” 메시지 처리
+// -------------------------------------------------------------------------------------------------
 static int accept_and_register(int listen_fd) {
+    int registered = 0;
     global_listen_fd = listen_fd;
 
-    pthread_t reject_thread;
-    pthread_create(&reject_thread, NULL, reject_late_clients, NULL);
-
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        struct sockaddr_storage cli_addr;
-        socklen_t sin_size = sizeof cli_addr;
-        int new_fd = accept(listen_fd, (struct sockaddr *)&cli_addr, &sin_size);
-        if (new_fd < 0) {
+    while (registered < MAX_CLIENTS) {
+        struct sockaddr_storage addr;
+        socklen_t addrlen = sizeof(addr);
+        int client_fd = accept(global_listen_fd, (struct sockaddr*)&addr, &addrlen);
+        if (client_fd < 0) {
             perror("accept");
-            i--;
             continue;
         }
 
-        cJSON *msg = recv_json(new_fd);
-        if (!msg) {
-            close(new_fd);
-            i--;
-            continue;
-        }
-        cJSON *jtype = cJSON_GetObjectItem(msg, "type");
-        cJSON *jusername = cJSON_GetObjectItem(msg, "username");
-        if (!jtype || !jusername || strcmp(jtype->valuestring, "register") != 0) {
+        if (registered >= MAX_CLIENTS) {
+            // 이미 두 명 등록된 상태 → 즉시 NACK 후 close
             cJSON *nack = cJSON_CreateObject();
             cJSON_AddStringToObject(nack, "type", "register_nack");
-            cJSON_AddStringToObject(nack, "reason", "Invalid register message");
-            send_json(new_fd, nack);
+            cJSON_AddStringToObject(nack, "reason", "game is already running");
+            send_to_client(client_fd, nack);
             cJSON_Delete(nack);
-            cJSON_Delete(msg);
-            close(new_fd);
-            i--;
+            close(client_fd);
             continue;
         }
 
-        // 올바른 등록 처리
-        strncpy(game.players[i].username, jusername->valuestring, sizeof(game.players[i].username)-1);
-        game.players[i].username[sizeof(game.players[i].username)-1] = '\0';
-        game.players[i].socket = new_fd;
-        game.players[i].registered = 1;
-        game.players[i].color = (i == 0 ? 'R' : 'B');
+        cJSON *req = recv_json(client_fd);
+        if (!req) {
+            close(client_fd);
+            continue;
+        }
 
-        // register_ack 메시지를 두 플레이어에게 브로드캐스트
-        cJSON *ack = cJSON_CreateObject();
-        cJSON_AddStringToObject(ack, "type", "register_ack");
-        cJSON *jplayers = cJSON_AddArrayToObject(ack, "players");
-        for (int k = 0; k <= i; k++) {
-            cJSON_AddItemToArray(jplayers, cJSON_CreateString(game.players[k].username));
+        cJSON *jtype = cJSON_GetObjectItem(req, "type");
+        cJSON *juser = cJSON_GetObjectItem(req, "username");
+        cJSON *resp = NULL;
+
+        if (jtype && jtype->valuestring
+            && strcmp(jtype->valuestring, "register") == 0
+            && juser && juser->valuestring)
+        {
+            // 중복 검사
+            int dup = 0;
+            for (int i = 0; i < registered; i++) {
+                if (strcmp(game.players[i].username, juser->valuestring) == 0) {
+                    dup = 1;  break;
+                }
+            }
+            if (dup) {
+                resp = cJSON_CreateObject();
+                cJSON_AddStringToObject(resp, "type", "register_nack");
+                cJSON_AddStringToObject(resp, "reason", "username exists");
+            }
+            else {
+                // 정상 등록
+                game.players[registered].socket = client_fd;
+                strncpy(game.players[registered].username,
+                        juser->valuestring,
+                        sizeof(game.players[0].username) - 1);
+                game.players[registered].username[sizeof(game.players[0].username)-1] = '\0';
+                game.players[registered].registered  = 1;
+                registered++;
+
+                resp = cJSON_CreateObject();
+                cJSON_AddStringToObject(resp, "type", "register_ack");
+            }
         }
-        for (int k = 0; k <= i; k++) {
-            send_json(game.players[k].socket, ack);
+        else {
+            resp = cJSON_CreateObject();
+            cJSON_AddStringToObject(resp, "type", "register_nack");
+            cJSON_AddStringToObject(resp, "reason", "invalid register");
         }
-        cJSON_Delete(ack);
-        cJSON_Delete(msg);
+        send_to_client(client_fd, resp);
+        cJSON_Delete(resp);
+        cJSON_Delete(req);
     }
     return 0;
 }
 
-// ==============================
-// (5) board_to_json: GameState → JSON 객체로 변환
-//     { "type":"board_update", "board":[“........”, …] }
-// ==============================
-static cJSON *board_to_json(const GameState *g) {
-    cJSON *job = cJSON_CreateObject();
-    cJSON_AddStringToObject(job, "type", "board_update");
-    cJSON *jboard = cJSON_CreateArray();
-    for (int r = 0; r < BOARD_SIZE; r++) {
-        char line[BOARD_SIZE+1];
-        for (int c = 0; c < BOARD_SIZE; c++) {
-            line[c] = g->board[r][c];
-        }
-        line[BOARD_SIZE] = '\0';
-        cJSON_AddItemToArray(jboard, cJSON_CreateString(line));
+// -------------------------------------------------------------------------------------------------
+// 8) reject_late_clients: 이미 MAX_CLIENTS가 등록된 뒤 들어오면 즉시 NACK
+// -------------------------------------------------------------------------------------------------
+static void *reject_late_clients(void *arg) {
+    (void)arg;
+    while (1) {
+        sleep(1);
+        if (global_listen_fd < 0) break; // 서버 종료 시 스레드 종료
+        struct sockaddr_storage addr;
+        socklen_t addrlen = sizeof(addr);
+        int client_fd = accept(global_listen_fd, (struct sockaddr*)&addr, &addrlen);
+        if (client_fd < 0) continue;
+        cJSON *nack = cJSON_CreateObject();
+        cJSON_AddStringToObject(nack, "type", "register_nack");
+        cJSON_AddStringToObject(nack, "reason", "game is already running");
+        send_to_client(client_fd, nack);
+        cJSON_Delete(nack);
+        close(client_fd);
     }
-    cJSON_AddItemToObject(job, "board", jboard);
-    return job;
+    return NULL;
 }
 
-// ==============================
-// (6) game_loop: "your_turn" → move/pass 처리 → "move_ok"/"pass" broadcast → 턴 교대 → "game_over"
-// ==============================
+// -------------------------------------------------------------------------------------------------
+// 9) game_loop: “your_turn” → move/pass 처리 → “move_ok”/“pass” 브로드캐스트 → 턴 교대 → 게임 종료
+//    (전부 JSON + 소켓으로만 처리, LED 호출 없음)
+// -------------------------------------------------------------------------------------------------
 static void game_loop(void) {
-    init_game_state(&game);
+    init_game(&game);
 
-    // 1) 초기 game_start 브로드캐스트
-    {
-        cJSON *start_msg = cJSON_CreateObject();
-        cJSON_AddStringToObject(start_msg, "type", "game_start");
-        cJSON *jboard = cJSON_CreateArray();
-        for (int r = 0; r < BOARD_SIZE; r++) {
-            char line[BOARD_SIZE+1];
-            for (int c = 0; c < BOARD_SIZE; c++) {
-                line[c] = game.board[r][c];
-            }
-            line[BOARD_SIZE] = '\0';
-            cJSON_AddItemToArray(jboard, cJSON_CreateString(line));
-        }
-        cJSON_AddItemToObject(start_msg, "board", jboard);
-        send_json(game.players[0].socket, start_msg);
-        send_json(game.players[1].socket, start_msg);
-        cJSON_Delete(start_msg);
-    }
+    // --- game_start 브로드캐스트 ---
+    cJSON *game_start = cJSON_CreateObject();
+    cJSON_AddStringToObject(game_start, "type", "game_start");
+    cJSON *players = cJSON_AddArrayToObject(game_start, "players");
+    cJSON_AddItemToArray(players, cJSON_CreateString(game.players[0].username));
+    cJSON_AddItemToArray(players, cJSON_CreateString(game.players[1].username));
+    cJSON_AddStringToObject(game_start, "first_player", game.players[0].username);
+    broadcast_json(game_start);
+    cJSON_Delete(game_start);
 
-    // 2) 메인 게임 루프
-    while (1) {
-        int cur = game.current_turn;       // 0=R, 1=B
-        int opp = 1 - cur;
-        int cur_fd = game.players[cur].socket;
-        char cur_color = game.players[cur].color;
+    int turn = 0; // 0: Red, 1: Black
+    int countPass = 0;
 
-        // (a) your_turn 메시지 전송
+    while (!isGameOver(game.board)) {
+        // 1) “your_turn” 메시지 전송
         cJSON *your_turn = cJSON_CreateObject();
         cJSON_AddStringToObject(your_turn, "type", "your_turn");
-        cJSON *jboard = cJSON_CreateArray();
-        for (int r = 0; r < BOARD_SIZE; r++) {
-            char line[BOARD_SIZE+1];
-            for (int c = 0; c < BOARD_SIZE; c++) {
-                line[c] = game.board[r][c];
-            }
-            line[BOARD_SIZE] = '\0';
-            cJSON_AddItemToArray(jboard, cJSON_CreateString(line));
-        }
-        cJSON_AddItemToObject(your_turn, "board", jboard);
-        send_json(cur_fd, your_turn);
+        cJSON_AddItemToObject(your_turn, "board", board_to_json(&game));
+        cJSON_AddNumberToObject(your_turn, "timeout", TIMEOUT);
+        send_to_client(game.players[turn].socket, your_turn);
         cJSON_Delete(your_turn);
 
-        // (b) 클라이언트 응답 대기(select + TIMEOUT)
+        // 2) select()로 응답 대기
+        int client_fd = game.players[turn].socket;
         fd_set readfds;
-        struct timeval tv;
         FD_ZERO(&readfds);
-        FD_SET(cur_fd, &readfds);
+        FD_SET(client_fd, &readfds);
+
+        struct timeval tv;
         tv.tv_sec = TIMEOUT;
         tv.tv_usec = 0;
-        int rv = select(cur_fd + 1, &readfds, NULL, NULL, &tv);
-        if (rv == 0) {
-            // TIMEOUT 발생 → 해당 플레이어 패스 처리
-            cJSON *pass_msg = cJSON_CreateObject();
-            cJSON_AddStringToObject(pass_msg, "type", "pass");
-            cJSON *jboard2 = cJSON_CreateArray();
-            for (int r = 0; r < BOARD_SIZE; r++) {
-                char line[BOARD_SIZE+1];
-                for (int c = 0; c < BOARD_SIZE; c++) {
-                    line[c] = game.board[r][c];
-                }
-                line[BOARD_SIZE] = '\0';
-                cJSON_AddItemToArray(jboard2, cJSON_CreateString(line));
-            }
-            cJSON_AddItemToObject(pass_msg, "board", jboard2);
-            send_json(cur_fd, pass_msg);
-            cJSON_Delete(pass_msg);
-            game.current_turn = opp;
-            continue;
-        }
-        else if (rv < 0) {
+
+        int sel = select(client_fd + 1, &readfds, NULL, NULL, &tv);
+        if (sel < 0) {
             perror("select");
             break;
         }
 
-        // (c) 클라이언트가 보낸 JSON 메시지 수신
-        cJSON *req = recv_json(cur_fd);
-        if (!req) {
-            printf("Player %s disconnected.\n", game.players[cur].username);
-            break;
+        if (sel == 0) {
+            // TIMEOUT 발생 → 자동 pass
+            cJSON *resp = cJSON_CreateObject();
+            countPass++;
+            cJSON_AddStringToObject(resp, "type", "pass");
+            cJSON_AddItemToObject(resp, "board", board_to_json(&game));
+            cJSON_AddStringToObject(resp, "next_player", game.players[1 - turn].username);
+            broadcast_json(resp);
+            cJSON_Delete(resp);
+
+            if (countPass == 2 || isGameOver(game.board)) break;
+            turn = 1 - turn;
+            continue;
         }
-        cJSON *rtype = cJSON_GetObjectItem(req, "type");
-        if (!rtype || !rtype->valuestring) {
+
+        // 3) 클라이언트로부터 JSON 수신
+        cJSON *req = recv_json(client_fd);
+        if (!req) break;
+
+        cJSON *jtype = cJSON_GetObjectItem(req, "type");
+        cJSON *resp = cJSON_CreateObject();
+
+        if (jtype && strcmp(jtype->valuestring, "move") == 0) {
+            countPass = 0;
+
+            int r1 = cJSON_GetObjectItem(req, "sx")->valueint - 1;
+            int c1 = cJSON_GetObjectItem(req, "sy")->valueint - 1;
+            int r2 = cJSON_GetObjectItem(req, "tx")->valueint - 1;
+            int c2 = cJSON_GetObjectItem(req, "ty")->valueint - 1;
+
+            // (0,0,0,0)은 클라이언트가 “둘 곳이 없다”는 의미로 보내는 패스
+            if (r1 == -1 && c1 == -1 && r2 == -1 && c2 == -1) {
+                if (hasValidMove(game.board, game.players[turn].color)) {
+                    cJSON_AddStringToObject(resp, "type", "invalid_move");
+                } else {
+                    countPass++;
+                    cJSON_AddStringToObject(resp, "type", "pass");
+                    cJSON_AddItemToObject(resp, "board", board_to_json(&game));
+                    cJSON_AddStringToObject(resp, "next_player", game.players[1 - turn].username);
+                    broadcast_json(resp);
+                    cJSON_Delete(resp);
+                    cJSON_Delete(req);
+
+                    if (countPass == 2 || isGameOver(game.board)) break;
+                    turn = 1 - turn;
+                    continue;
+                }
+            }
+            else if (isValidInput(game.board, r1, c1, r2, c2) &&
+                     isValidMove(game.board, game.players[turn].color, r1, c1, r2, c2)) {
+                Move(game.board, turn, r1, c1, r2, c2);
+                cJSON_AddStringToObject(resp, "type", "move_ok");
+                turn = 1 - turn;
+            } else {
+                cJSON_AddStringToObject(resp, "type", "invalid_move");
+            }
+        } else {
+            // “move” 타입이 아니면 무시
+            cJSON_Delete(resp);
             cJSON_Delete(req);
             continue;
         }
-        const char *type = rtype->valuestring;
 
-        // (c1) move 요청 처리
-        if (strcmp(type, "move") == 0) {
-            cJSON *jfrom = cJSON_GetObjectItem(req, "from");
-            cJSON *jto   = cJSON_GetObjectItem(req, "to");
-            if (jfrom && jto && cJSON_IsArray(jfrom) && cJSON_IsArray(jto)) {
-                int r1 = cJSON_GetArrayItem(jfrom, 0)->valueint;
-                int c1 = cJSON_GetArrayItem(jfrom, 1)->valueint;
-                int r2 = cJSON_GetArrayItem(jto,   0)->valueint;
-                int c2 = cJSON_GetArrayItem(jto,   1)->valueint;
-
-                if (isValidMove(game.board, cur, r1, c1, r2, c2)) {
-                    Move(game.board, cur, r1, c1, r2, c2);
-
-                    cJSON *move_ok = cJSON_CreateObject();
-                    cJSON_AddStringToObject(move_ok, "type", "move_ok");
-                    cJSON *jboard3 = cJSON_CreateArray();
-                    for (int rr = 0; rr < BOARD_SIZE; rr++) {
-                        char line[BOARD_SIZE+1];
-                        for (int cc = 0; cc < BOARD_SIZE; cc++) {
-                            line[cc] = game.board[rr][cc];
-                        }
-                        line[BOARD_SIZE] = '\0';
-                        cJSON_AddItemToArray(jboard3, cJSON_CreateString(line));
-                    }
-                    cJSON_AddItemToObject(move_ok, "board", jboard3);
-                    send_json(game.players[0].socket, move_ok);
-                    send_json(game.players[1].socket, move_ok);
-                    cJSON_Delete(move_ok);
-
-                    game.current_turn = opp;
-                } else {
-                    cJSON *inv = cJSON_CreateObject();
-                    cJSON_AddStringToObject(inv, "type", "invalid_move");
-                    send_json(cur_fd, inv);
-                    cJSON_Delete(inv);
-                }
-            }
-            cJSON_Delete(req);
-        }
-        // (c2) pass 요청 처리
-        else if (strcmp(type, "pass") == 0) {
-            game.current_turn = opp;
-
-            cJSON *pass_brd = cJSON_CreateObject();
-            cJSON_AddStringToObject(pass_brd, "type", "pass");
-            cJSON *jboard4 = cJSON_CreateArray();
-            for (int rr = 0; rr < BOARD_SIZE; rr++) {
-                char line[BOARD_SIZE+1];
-                for (int cc = 0; cc < BOARD_SIZE; cc++) {
-                    line[cc] = game.board[rr][cc];
-                }
-                line[BOARD_SIZE] = '\0';
-                cJSON_AddItemToArray(jboard4, cJSON_CreateString(line));
-            }
-            cJSON_AddItemToObject(pass_brd, "board", jboard4);
-            send_json(game.players[0].socket, pass_brd);
-            send_json(game.players[1].socket, pass_brd);
-            cJSON_Delete(pass_brd);
-
-            cJSON_Delete(req);
-        }
-        else {
-            // 알 수 없는 메시지 무시
-            cJSON_Delete(req);
-        }
+        // 4) move_ok 또는 invalid_move 브로드캐스트
+        cJSON_AddItemToObject(resp, "board", board_to_json(&game));
+        cJSON_AddStringToObject(resp, "next_player", game.players[1 - turn].username);
+        broadcast_json(resp);
+        cJSON_Delete(resp);
+        cJSON_Delete(req);
     }
 
-    // 3) 게임 종료 → broadcast game_over
-    {
-        cJSON *go = cJSON_CreateObject();
-        cJSON_AddStringToObject(go, "type", "game_over");
-        cJSON *jboard5 = cJSON_CreateArray();
-        for (int r = 0; r < BOARD_SIZE; r++) {
-            char line[BOARD_SIZE+1];
-            for (int c = 0; c < BOARD_SIZE; c++) {
-                line[c] = game.board[r][c];
-            }
-            line[BOARD_SIZE] = '\0';
-            cJSON_AddItemToArray(jboard5, cJSON_CreateString(line));
-        }
-        cJSON_AddItemToObject(go, "board", jboard5);
-
-        int rcount = countR(game.board);
-        int bcount = countB(game.board);
-        if (rcount > bcount) {
-            cJSON_AddStringToObject(go, "winner", game.players[0].username);
-        } else if (bcount > rcount) {
-            cJSON_AddStringToObject(go, "winner", game.players[1].username);
-        } else {
-            cJSON_AddStringToObject(go, "winner", "Draw");
-        }
-
-        send_json(game.players[0].socket, go);
-        send_json(game.players[1].socket, go);
-        cJSON_Delete(go);
-    }
+    // 5) 게임 종료 → “game_over” 메시지 브로드캐스트
+    cJSON *over = cJSON_CreateObject();
+    cJSON_AddStringToObject(over, "type", "game_over");
+    cJSON_AddItemToObject(over, "board", board_to_json(&game));
+    cJSON *scores = cJSON_CreateObject();
+    cJSON_AddNumberToObject(scores, game.players[0].username, countR(game.board));
+    cJSON_AddNumberToObject(scores, game.players[1].username, countB(game.board));
+    cJSON_AddItemToObject(over, "scores", scores);
+    broadcast_json(over);
+    cJSON_Delete(over);
 }
 
-// ==============================
-// (7) server_run: main.c에서 호출되는 진입점
-// ==============================
+// -------------------------------------------------------------------------------------------------
+// 10) server_run: 서버 시작 지점
+// -------------------------------------------------------------------------------------------------
 int server_run(const char *port) {
     int listen_fd = create_listen_socket(port);
     if (listen_fd < 0) {
-        fprintf(stderr, "Error: Failed to create listening socket on port %s\n", port);
+        fprintf(stderr, "Failed to create listen socket on port %s\n", port);
         return EXIT_FAILURE;
     }
-    global_listen_fd = listen_fd;
+    printf("Server started on port %s\n", port);
 
+    global_listen_fd = listen_fd;
+    init_game(&game);
+
+    // NOTE: update_led_matrix 호출 전부 제거 (서버는 LED와 무관)
+    // accept_and_register → reject_late_clients 스레드 생성 → game_loop() 실행
+    pthread_t reject_thread;
+    pthread_create(&reject_thread, NULL, reject_late_clients, NULL);
     accept_and_register(listen_fd);
     game_loop();
 
