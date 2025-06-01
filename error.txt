@@ -25,3 +25,103 @@ g++ \
   main.o server.o client.o json.o game.o board.o cJSON.o \
   -Llibs/rpi-rgb-led-matrix/lib -lrgbmatrix -lpthread -lrt \
   -o hw3
+
+
+src/server.c: In function ‘create_listen_socket’:
+src/server.c:72:21: error: storage size of ‘hints’ isn’t known
+   72 |     struct addrinfo hints, *res, *p;
+      |                     ^~~~~
+src/server.c:79:22: error: ‘AI_PASSIVE’ undeclared (first use in this function)
+   79 |     hints.ai_flags = AI_PASSIVE;
+      |                      ^~~~~~~~~~
+src/server.c:79:22: note: each undeclared identifier is reported only once for each function it appears in
+src/server.c:81:15: warning: implicit declaration of function ‘getaddrinfo’ [-Wimplicit-function-declaration]
+   81 |     if ((rv = getaddrinfo(NULL, port, &hints, &res)) != 0) {
+      |               ^~~~~~~~~~~
+src/server.c:82:46: warning: implicit declaration of function ‘gai_strerror’; did you mean ‘strerror’? [-Wimplicit-function-declaration]
+   82 |         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+      |                                              ^~~~~~~~~~~~
+      |                                              strerror
+src/server.c:86:35: error: invalid use of undefined type ‘struct addrinfo’
+   86 |     for (p = res; p != NULL; p = p->ai_next) {
+      |                                   ^~
+src/server.c:87:29: error: invalid use of undefined type ‘struct addrinfo’
+   87 |         listen_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+      |                             ^~
+src/server.c:87:43: error: invalid use of undefined type ‘struct addrinfo’
+   87 |         listen_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+      |                                           ^~
+src/server.c:87:59: error: invalid use of undefined type ‘struct addrinfo’
+   87 |         listen_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+      |                                                           ^~
+src/server.c:90:30: error: invalid use of undefined type ‘struct addrinfo’
+   90 |         if (bind(listen_fd, p->ai_addr, p->ai_addrlen) < 0) {
+      |                              ^~
+src/server.c:90:42: error: invalid use of undefined type ‘struct addrinfo’
+   90 |         if (bind(listen_fd, p->ai_addr, p->ai_addrlen) < 0) {
+      |                                          ^~
+src/server.c:99:9: warning: implicit declaration of function ‘freeaddrinfo’ [-Wimplicit-function-declaration]
+   99 |         freeaddrinfo(res);
+      |         ^~~~~~~~~~~~
+src/server.c: In function ‘game_loop’:
+src/server.c:265:9: error: unknown type name ‘fd_set’
+  265 |         fd_set readfds;
+      |         ^~~~~~
+src/server.c:266:24: error: storage size of ‘tv’ isn’t known
+  266 |         struct timeval tv;
+      |                        ^~
+src/server.c:267:9: warning: implicit declaration of function ‘FD_ZERO’ [-Wimplicit-function-declaration]
+  267 |         FD_ZERO(&readfds);
+      |         ^~~~~~~
+src/server.c:268:9: warning: implicit declaration of function ‘FD_SET’ [-Wimplicit-function-declaration]
+  268 |         FD_SET(cur_fd, &readfds);
+      |         ^~~~~~
+src/server.c:271:18: warning: implicit declaration of function ‘select’ [-Wimplicit-function-declaration]
+  271 |         int rv = select(cur_fd + 1, &readfds, NULL, NULL, &tv);
+      |                  ^~~~~~
+src/client.c: In function ‘connect_to_server’:
+src/client.c:29:21: error: storage size of ‘hints’ isn’t known
+   29 |     struct addrinfo hints, *res, *p;
+      |                     ^~~~~
+src/client.c:37:15: warning: implicit declaration of function ‘getaddrinfo’ [-Wimplicit-function-declaration]
+   37 |     if ((rv = getaddrinfo(ip, port, &hints, &res)) != 0) {
+      |               ^~~~~~~~~~~
+src/client.c:38:46: warning: implicit declaration of function ‘gai_strerror’; did you mean ‘strerror’? [-Wimplicit-function-declaration]
+   38 |         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+      |                                              ^~~~~~~~~~~~
+      |                                              strerror
+src/client.c:42:35: error: invalid use of undefined type ‘struct addrinfo’
+   42 |     for (p = res; p != NULL; p = p->ai_next) {
+      |                                   ^~
+src/client.c:43:26: error: invalid use of undefined type ‘struct addrinfo’
+   43 |         sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+      |                          ^~
+src/client.c:43:40: error: invalid use of undefined type ‘struct addrinfo’
+   43 |         sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+      |                                        ^~
+src/client.c:43:56: error: invalid use of undefined type ‘struct addrinfo’
+   43 |         sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+      |                                                        ^~
+src/client.c:45:30: error: invalid use of undefined type ‘struct addrinfo’
+   45 |         if (connect(sockfd, p->ai_addr, p->ai_addrlen) < 0) {
+      |                              ^~
+src/client.c:45:42: error: invalid use of undefined type ‘struct addrinfo’
+   45 |         if (connect(sockfd, p->ai_addr, p->ai_addrlen) < 0) {
+      |                                          ^~
+src/client.c:54:9: warning: implicit declaration of function ‘freeaddrinfo’ [-Wimplicit-function-declaration]
+   54 |         freeaddrinfo(res);
+      |         ^~~~~~~~~~~~
+src/board.c: In function ‘local_led_test’:
+src/board.c:167:22: error: storage size of ‘sa’ isn’t known
+  167 |     struct sigaction sa;
+      |                      ^~
+src/board.c:169:5: warning: implicit declaration of function ‘sigemptyset’ [-Wimplicit-function-declaration]
+  169 |     sigemptyset(&sa.sa_mask);
+      |     ^~~~~~~~~~~
+src/board.c:171:5: warning: implicit declaration of function ‘sigaction’ [-Wimplicit-function-declaration]
+  171 |     sigaction(SIGINT, &sa, NULL);
+      |     ^~~~~~~~~
+src/board.c:196:9: warning: implicit declaration of function ‘usleep’; did you mean ‘sleep’? [-Wimplicit-function-declaration]
+  196 |         usleep(100000);
+      |         ^~~~~~
+      |         sleep
